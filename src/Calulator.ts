@@ -9,13 +9,17 @@ enum REGEX {
      */
     validOperation = "(\\d+(\\.\\d+)?|[+\\-×÷])",
     validNumber = "^\\d+(\\.\\d+)?$"
-}  
+}
 
-enum OPERATORS {    
+enum OPERATORS {
     ADDITION = '+',
     SUBTRACTION = '-',
     MULTIPLICATION = '×',
+    MULTIPLICATION_1 = '×',
+    MULTIPLICATION_2 = '*',
     DIVISION = '÷',
+    DIVISION_1 = '/',
+
 }
 
 enum KEYBOARD_KEYS {
@@ -30,6 +34,7 @@ export default class CalculatorService {
     get displayValue(): string {
         return this._displayValue.value;
     }
+
     set displayValue(value: string) {
         this._displayValue.value = value;
     }
@@ -52,49 +57,52 @@ export default class CalculatorService {
             return;
         }
 
-        if (this.displayValue === '0' && RegExp(REGEX.digit).test(digit))
-            return (this.displayValue = digit);
-
-        this.displayValue = `${this.displayValue}${digit}`;
-    }
-
-	/**
-	 * Prevent consecutive operators
-	 */
-    private handleOperator(operator: string) {
-        if (this.displayValue === '') return; 
-
-        if(operator === '/') operator = operator = OPERATORS.DIVISION;
-        if(['x','*'].includes(operator)) operator = OPERATORS.MULTIPLICATION;
-
-        const lastChar = this.displayValue.slice(-1);
-        if (this.isValidOperator(lastChar)) {
-            this.displayValue = `${this.displayValue.substring(0, this.displayValue.length - 1)}${operator}`;
+        if (this.displayValue === '0' && RegExp(REGEX.digit).test(digit)) {
+            this.displayValue = digit;
             return;
         }
 
-        this.displayValue = `${this.displayValue}${operator}`;
+        this.displayValue += digit;
+    }
+
+    /**
+     * Prevent consecutive operators
+     */
+    private handleOperator(operator: string) {
+        if (this.displayValue === '') return;
+
+        if (operator === '/') {
+            operator = OPERATORS.DIVISION;
+        } else if (['x', '*'].includes(operator)) {
+            operator = OPERATORS.MULTIPLICATION;
+        }
+
+        const lastChar = this.displayValue.slice(-1);
+        if (this.isValidOperator(lastChar)) {
+            this.displayValue = this.displayValue.slice(0, -1) + operator;
+        } else {
+            this.displayValue += operator;
+        }
     }
 
     private calculateExpression() {
         try {
             const result = this.calculate(this.displayValue);
             this.displayValue = result.toString();
-        } catch (error) {
+        } catch {
             this.displayValue = "Error";
         }
     }
 
     private calculate(expression: string): Decimal {
-        const tokens = expression.match(REGEX.validOperation);
+        const tokens = expression.match(new RegExp(REGEX.validOperation, 'g'));
         if (!tokens) {
             throw new Error("Invalid expression");
         }
-    
+
         const numbers: Decimal[] = [];
         const operators: string[] = [];
-    
-        // 2. Separar números y operadores
+
         for (const token of tokens) {
             if (RegExp(REGEX.validNumber).test(token)) {
                 numbers.push(new Decimal(token));
@@ -104,25 +112,23 @@ export default class CalculatorService {
                 throw new Error(`Invalid token: ${token}`);
             }
         }
-    
-        // 3. Resolver operaciones respetando la prioridad
+
         while (operators.length > 0) {
-            // Buscar primero multiplicaciones y divisiones
-            const priorityIndex = operators.findIndex(op => 
+            const priorityIndex = operators.findIndex(op =>
                 [OPERATORS.MULTIPLICATION, OPERATORS.DIVISION].includes(op as OPERATORS)
             );
-    
+
             const opIndex = priorityIndex !== -1 ? priorityIndex : 0;
             const operator = operators.splice(opIndex, 1)[0];
             const left = numbers.splice(opIndex, 1)[0];
             const right = numbers.splice(opIndex, 1)[0];
-    
+
             if (!left || !right) {
                 throw new Error("Malformed expression");
             }
-    
+
             let result: Decimal;
-    
+
             switch (operator) {
                 case OPERATORS.ADDITION:
                     result = left.plus(right);
@@ -134,54 +140,50 @@ export default class CalculatorService {
                     result = left.times(right);
                     break;
                 case OPERATORS.DIVISION:
-                    if (right.isZero()) {
-                        throw new Error("Division by zero");
-                    }
+                    if (right.isZero()) throw new Error("Division by zero");
                     result = left.div(right);
                     break;
                 default:
                     throw new Error(`Unknown operator: ${operator}`);
             }
-    
-            // Insertar el resultado en la posición correcta
+
             numbers.splice(opIndex, 0, result);
         }
-    
-        // 4. El resultado final es el único número restante
+
         return numbers[0];
     }
-    
 
-    private isDigit(value: string) {
-        return RegExp(REGEX.validInput).exec(value);
+    private isDigit(value: string): boolean {
+        return RegExp(REGEX.validInput).test(value);
     }
 
-    private isValidOperator(value: string) {
+    private isValidOperator(value: string): boolean {
         return this.getOperations().includes(value);
     }
 
-    
-	public handleKeyDown = (event: KeyboardEvent) => {
-		event.preventDefault();
-		if (event.key === KEYBOARD_KEYS.ENTER) {
-			this.calculateExpression();
-		} else if (event.key === KEYBOARD_KEYS.BACKSPACE) {
-			this.displayValue = this.displayValue.slice(0, -1);
-		} else if (event.key === KEYBOARD_KEYS.ESCAPE) {
-			this.displayValue = '0';
-		} else if (this.isDigit(event.key)) {
-			this.handleDigit(event.key);
-		} else if (this.isValidOperator(event.key)) {
-			this.handleOperator(event.key);
-	    }
-	}
+    public handleKeyDown = (event: KeyboardEvent) => {
+        event.preventDefault();
 
-    private getOperations() {
-        return [
-            OPERATORS.ADDITION,
-            OPERATORS.SUBTRACTION,
-            OPERATORS.MULTIPLICATION,
-            OPERATORS.DIVISION
-        ] as string[];
+        switch (event.key) {
+            case KEYBOARD_KEYS.ENTER:
+                this.calculateExpression();
+                break;
+            case KEYBOARD_KEYS.BACKSPACE:
+                this.displayValue = this.displayValue.slice(0, -1);
+                break;
+            case KEYBOARD_KEYS.ESCAPE:
+                this.displayValue = '0';
+                break;
+            default:
+                if (this.isDigit(event.key)) {
+                    this.handleDigit(event.key);
+                } else if (this.isValidOperator(event.key)) {
+                    this.handleOperator(event.key);
+                }
+        }
+    };
+
+    private getOperations(): string[] {
+        return Object.values(OPERATORS);
     }
 }
